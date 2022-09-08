@@ -1,0 +1,14 @@
+title: blatt
+description: NLP-helper for OCR-ed pages in PAGE XML format
+# Local Setting
+# baseurl: ""
+# url: ""
+# Remote Setting
+baseurl: "/blatt"
+url: "https://ub-mannheim.github.io"
+remote_theme: pmarsceill/just-the-docs@v0.3.3
+color_scheme: nil
+search_enabled: true
+aux_links:
+  "View on GitHub":
+    - "//github.com/UB-Mannheim/blatt"

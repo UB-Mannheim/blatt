@@ -1,0 +1,15 @@
+.DS_Store
+docs/_build/*
+.ipynb_checkpoints
+__pycache__
+/blatt.egg-info
+/build
+/dist
+/.eggs
+*~
+/.idea
+docs/Gemfile
+docs/Gemfile.lock
+docs/_site/*
+/venv
+/tests
