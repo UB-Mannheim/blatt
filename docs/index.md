@@ -36,10 +36,10 @@ On initiation the Page-class reads the file `PAGEXML` and stores TextRegions, Te
 ```
 from blatt import Page
 p = Page(PAGEXML)
-p.to_text(TXT)
+p.to_txt(TXT)
 ```
 
-By default it saves the plain text without line breaks (the hyphens '-', '-', '⹀' and '⸗' are removed and the corresponding words are merged). If you need line breaks, use `p.to_text(TXT, linebreak=True)`.
+By default it saves the plain text without line breaks (the hyphens '-', '-', '⹀' and '⸗' are removed and the corresponding words are merged). If you need line breaks, use `p.to_txt(TXT, linebreak=True)`.
 
 ## Command Line Interface
 
