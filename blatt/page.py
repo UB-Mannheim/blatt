@@ -2,13 +2,15 @@ from lxml import etree as ET
 from pprint import pformat
 from typing import List, Tuple
 from pathlib import Path
+from segtok.segmenter import split_multi
+import csv
 
 
 class Page:
     """
-    Class Page: Reads PAGE-xml file. Stores TextRegions, TextLines and Baseline coordinates.
+    Class Page: Reads PAGE XML file. Stores TextRegions, TextLines and Baseline coordinates.
     Removes hyphens from the text lines. Computes the coordinates of the mid-range average of baseline points.
-    Saves plain text with or without line breaks to file.
+    Saves plain text with or without line breaks to TXT file. Splits plain text into sentences and saves it as TSV.
     """
 
     def __init__(self, filename: Path = ''):
@@ -22,6 +24,7 @@ class Page:
             self._parse_page_xml()
             self.text_with_linebreaks = '\n'.join(self.text_lines)
             self.text_without_linebreaks = self.remove_hyphens(self.text_lines)
+            self.sentences = self.split_sentences(self.text_without_linebreaks)
             self.baselines: List
             self.x_baselines: List
             self.y_baselines: List
@@ -39,7 +42,7 @@ class Page:
 
     @staticmethod
     def _open_page_xml(filename: Path = '') -> Tuple[ET.Element, ET._ElementTree, str]:
-        """Opens a PAGE-xml file and returns its tree, root and namespace."""
+        """Opens a PAGE XML file and returns its tree, root and namespace."""
         tree = ET.parse(filename)
         root = tree.getroot()
         namespace = tree.xpath('namespace-uri(.)')
@@ -96,6 +99,11 @@ class Page:
                     text += ' ' + lines[i + 1]
         return text
 
+    @staticmethod
+    def split_sentences(text: str) -> List[str]:
+        """Splits input plain text into sentences using the SegTok library https://github.com/fnl/segtok"""
+        return list(split_multi(text))
+
     def to_txt(self, filename: Path, linebreak: bool = False):
         """Saves TextLines as plain text into filename. If linebreak==True, the lines are separated by line breaks.
         Otherwise, the plain text contains no line breaks and hyphens [this is default]."""
@@ -104,3 +112,15 @@ class Page:
                 f.write(self.text_with_linebreaks)
             else:
                 f.write(self.text_without_linebreaks)
+
+    def to_tsv(self, filename: Path, sentence: bool = False):
+        """If sentence==False [default], it saves TextLines, TextRegionID, TextLineID and Coordinates to TSV.
+        Otherwise, it saves sentences (not lines!) into separate lines of TSV. The sentences are split from the plain
+        text without hyphens using the SegTok library. """
+        with open(filename, 'w', newline='') as f:
+            if sentence:
+                tsv = csv.writer(f, delimiter="\n")
+                tsv.writerow(self.sentences)
+            else:
+                tsv = csv.writer(f, delimiter='\t')
+                tsv.writerows(self.text_regions)

@@ -5,14 +5,14 @@ with open("README.md", "r") as fh:
 
 setup(
     name="blatt",
-    version='0.1.0',
+    version='0.1.5',
     author="Renat Shigapov",
     license="MIT",
     description="NLP-helper for OCR-ed pages in PAGE XML format.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/UB-Mannheim/blatt",
-    install_requires=['lxml', 'tqdm', 'click'],
+    install_requires=['lxml', 'tqdm', 'click', 'segtok'],
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
