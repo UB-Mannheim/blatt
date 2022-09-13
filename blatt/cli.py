@@ -23,7 +23,7 @@ def cli():
               help="If linebreak==False, it removes hyphens at the end of lines and merges the lines without line "
                    "breaks. Otherwise, it merges the lines using line breaks.")
 @click.argument('page_folder', type=click.Path(exists=True))
-@click.argument('text_folder', type=click.Path())
+@click.argument('txt_folder', type=click.Path())
 def to_txt(page_folder, txt_folder, linebreak):
     """blatt to_txt: converts all PAGE XML files in PAGE_FOLDER to TXT files with/without hyphens in TEXT_FOLDER."""
     file_paths = Path(page_folder).glob('*.xml')
