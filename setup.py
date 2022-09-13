@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="blatt",
-    version='0.1.5',
+    version='0.1.6',
     author="Renat Shigapov",
     license="MIT",
     description="NLP-helper for OCR-ed pages in PAGE XML format.",
