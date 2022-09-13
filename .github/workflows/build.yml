@@ -11,7 +11,7 @@ on:
 jobs:
   build-n-publish:
     name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@master
       - name: Set up Python 3.7
@@ -34,7 +34,7 @@ jobs:
           .
       - name: Publish distribution 📦 to PyPI
         # if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
-        uses: pypa/gh-action-pypi-publish@master
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           # repository_url: https://pypi.org/legacy/
