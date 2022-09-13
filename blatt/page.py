@@ -56,7 +56,11 @@ class Page:
         for text_region_id, text_region in enumerate(self.root.iter('{%s}TextRegion' % self.namespace)):
             for text_line in text_region.findall('{%s}TextLine' % self.namespace):
                 text_line_id = text_line.attrib['id']
-                text_line_bs = text_line.find('{%s}Baseline' % self.namespace).attrib['points']
+                try:
+                    text_line_bs = text_line.find('{%s}Baseline' % self.namespace).attrib['points']
+                except (Exception,):
+                    print('Warning! No "Baseline points" for "TextLine id"=' +
+                          text_line_id + ' in "file"=' + Path(self.filename).name)
                 coordinates = [c.split(',') for c in text_line_bs.split(' ')]
                 coordinates = [[int(c[0]), int(c[1])] for c in coordinates]
                 self.baselines.extend(coordinates)
