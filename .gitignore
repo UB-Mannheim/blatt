@@ -13,3 +13,4 @@ docs/Gemfile.lock
 docs/_site/*
 /venv
 /tests
+projects/.DS_Store
