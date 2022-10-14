@@ -1,21 +1,32 @@
-import pandas as pd
-from tqdm import tqdm
-from blatt import Page
-from pathlib import Path
-import difflib
-import numpy as np
 import csv
+import difflib
+import json
+from collections import defaultdict
+from glob import glob
+from typing import List
+
+import numpy as np
+import pandas as pd
+import regex
+from tqdm import tqdm
+
+from blatt import Page
 
 # these values are needed for merging and splitting segments
 MAXDY0 = 59  # Maximal difference in Y0 between the lines for merging segments # 65 = 5104; 59 = 5112
-MINDY0 = 86  # 96  # Minimal difference in Y0 between the lines for splitting segments # 115 => 4969; 100 => 5085; 90 => 5104
+MINDY0 = 86  # 96  # Minimal difference in Y0 between the lines for splitting segments
+# 115 => 4969; 100 => 5085; 90 => 5104
 
-paths = ['./MI1937/maschinenindustrie_1937_' + str(n).zfill(4) + '.xml' for n in range(6, 654)]
+paths = ['./data/maschinenindustrie_1937_' + str(n).zfill(4) + '.xml' for n in range(6, 654)]
+#paths = sorted(glob('./data/*.xml'))[5:653]
 
 
 class PageTwoColumns(Page):
     def __init__(self, *args):
         super(PageTwoColumns, self).__init__(*args)
+        self.dataframe = None
+        self.segments = {}
+        self.dY0 = []
         self.process_2columns()
 
     def process_2columns(self):
@@ -43,25 +54,25 @@ class PageTwoColumns(Page):
         df['Segmentation'] = (df['dY0'].apply(lambda x: True if abs(x) >= MINDY0 else False))
         # first two lines of segments cannot be with ':'
         for i in range(0, 2):
-            if ((df['Segmentation'].loc[i] == True) & (':' in df['Line'].loc[i])) and (
-                    df['Line'].loc[i] != 'Eigene Vertretungen im Ausland: Kowno, Riga.'):
-                df['Segmentation'].loc[i] = False
+            if ((df.loc[i, 'Segmentation'] == True) & (':' in df['Line'].loc[i])) and (
+                    df.loc[i, 'Line'] != 'Eigene Vertretungen im Ausland: Kowno, Riga.'):
+                df.loc[i, 'Segmentation'] = False
 
         # Exceptions
         try:
-            df['Segmentation'].loc[df[df['Line'].isin(['Zittau, Friedländerstr. 10/12.',
-                                                       'Schönebecker Str. 8.',
-                                                       'Staufen i. Breisgau.',
-                                                       'Augsburg, Im Sack G 273/74.',
-                                                       'München N 23, Soxhletstraße 1.',
-                                                       'Berlin S 42, Prinzenstr. 21.'])].index[:]] = False
+            df.loc[df[df['Line'].isin(['Zittau, Friedländerstr. 10/12.',
+                                       'Schönebecker Str. 8.',
+                                       'Staufen i. Breisgau.',
+                                       'Augsburg, Im Sack G 273/74.',
+                                       'München N 23, Soxhletstraße 1.',
+                                       'Berlin S 42, Prinzenstr. 21.'])].index[:], 'Segmentation'] = False
         except Exception:
             pass
 
         segid = 0
         df['SegmentID'] = ''
         for i, seg in df['Segmentation'].items():
-            df['SegmentID'].loc[i] = segid
+            df.loc[i, 'SegmentID'] = segid
             if seg:
                 segid += 1
 
@@ -84,12 +95,12 @@ class PageTwoColumns(Page):
 
         # Drop headers at a page
         if ' — ' in df['Line'].loc[right_col]:
-            df.drop(index=(right_col), inplace=True)
+            df.drop(index=right_col, inplace=True)
         if ' — ' in df['Line'].loc[0]:
-            df.drop(index=(0), inplace=True)
+            df.drop(index=0, inplace=True)
         if 0 in df.index:
             if df['TextRegionID'].loc[0] != df['TextRegionID'].loc[1]:
-                df.drop(index=(0), inplace=True)
+                df.drop(index=0, inplace=True)
 
         # Remove artefacts, special cases
         if 'vec.' in df[df['SegmentID'] == df['SegmentID'].max()]['Line'].tolist():
@@ -107,9 +118,9 @@ class PageTwoColumns(Page):
                        (df['Column'].shift(1) == 'left')].index[0]
 
         # Merge the bottom-left with upper-right TextRegions
-        if (all(df['dY0'][right_col:right_col + 2] <= MAXDY0) or all(
-                df['Line'][right_col:right_col + 1].str.contains(':'))) and (
-                df['Line'][right_col] not in ['Richard Weber & Co.,']):
+        if (all(df['dY0'].loc[right_col:right_col + 2] <= MAXDY0) or all(
+                df['Line'].loc[right_col:right_col + 1].str.contains(':'))) and (
+                df['Line'].loc[right_col] not in ['Richard Weber & Co.,']):
             df['SegmentID'].replace(df['SegmentID'][right_col + 1],
                                     df['SegmentID'][right_col - 1],
                                     inplace=True)
@@ -123,7 +134,7 @@ class PageTwoColumns(Page):
         self.dataframe = df
         segments = {}
         for sid in set(df['SegmentID']):
-            segments[self.filename + '_' + str(sid)] = df[df['SegmentID'] == sid][
+            segments[str(self.filename) + '_' + str(sid)] = df[df['SegmentID'] == sid][
                 ['Line', 'Line_ID', 'dY0']].values.tolist()
         self.segments = segments
         self.dY0 = df['dY0'].tolist()
@@ -135,7 +146,12 @@ class Entities:
     merge segments from consequent pages, removes hyphens and extracts entities.
     """
 
-    def __init__(self, paths=[]):
+    def __init__(self, paths: List[str]):
+        self.entities = {}
+        self.d = {}
+        self.segments = None
+        self.segments_text = None
+        self.segments_text_unhyphenated = None
         self.read_files(paths)
         self.merge_segments()
         self.get_entities()
@@ -173,7 +189,8 @@ class Entities:
         self.segments_text = s
         self.segments_text_unhyphenated = m
 
-    def unhyphenate(self, txt=list):
+    @staticmethod
+    def unhyphenate(txt: List[str]):
         """ Removes hyphens from OCR-ed strings stored in a list
         Check out the OCR-D guidelines for hyphenation:
         https://ocr-d.de/en/gt-guidelines/trans/trSilbentrennung.html
@@ -254,7 +271,7 @@ class Entities:
                     if (i < len(sis) - 1) and (sis[i] + 1 == sis[i + 1]):
                         entities[joiner(v[0:sis[0]])].append(
                             {v[si].split(': ', 1)[0]: joiner(v[si].split(': ', 1)[1:])})
-                    elif (i == len(sis) - 1):
+                    elif i == (len(sis) - 1):
                         entities[joiner(v[0:sis[0]])].append(
                             {v[si].split(': ', 1)[0]: joiner(v[si].split(': ', 1)[1:]) +
                                                       ' ' + joiner(v[si + 1:len(v)])})
@@ -369,12 +386,15 @@ prop_sets['GESCHÄFTSFÜHRER'] = {'Geschäftsführer', 'Geschäftsleiter', 'Gesc
                                 'Anteileigner u. Geschäftsführer', 'Geschäftleiter',
                                 'Anteileigner und Geschäftsführer', 'Kaufm. Geschäftsleiter',
                                 'Kaufm. Direktor', 'Kaufm. Leiter', 'Direktor', 'Leiter',
-                                'Betriebsführer', 'Leitung', 'Betriebsleiter'}
+                                'Betriebsführer', 'Leitung', 'Betriebsleiter',
+                                'Inhaber und Geschäftsführer', 'Inhaber u. Geschäftsführer'}
+
+prop_sets['FILIALE'] = {'Filialen', 'Filiale'}
+
+prop_sets['GESCHÄFTSSTELLE'] = {'Geschäftsstelle', 'Geschäftsstellen'}
 
 prop_sets['INHABER'] = {'Inhaber', 'Alleininhaber', 'Geschäftsinhaber',
                         'Inhaber (bzw. Gesellschafter)', 'Alleiniger Inhaber'}
-
-prop_sets['GESCHÄFTSINHABER_FÜHRER'] = {'Inhaber und Geschäftsführer', 'Inhaber u. Geschäftsführer'}
 
 prop_sets['BEVOLLMÄCHTIGTE'] = {'Handelsbevollmächtigte', 'Bevollmächtigte', 'Bevollmächtigter',
                                 'Handlungsbevollmächtigte', 'Generalbevollmächtigter',
@@ -399,7 +419,7 @@ prop_sets['NIEDERLASSUNGEN'] = {'A.-G., Zweigniederlassungen', 'Niederlassungen'
 prop_sets['PROKURISTEN'] = {'Prokurist', 'Einzelprokurist', 'Gesamt-Prokuristen',
                             'Prokuristen', 'Prokuristin', 'Pokurist'}
 
-prop_sets['PROKURIST_DER_ZWEIGNIEDERLASSUNG'] = {'Prokurist der Zweigniederlassung Sonthofen',
+prop_sets['PROKURIST DER ZWEIGNIEDERLASSUNG'] = {'Prokurist der Zweigniederlassung Sonthofen',
                                                  'Prokurist der Zweigniederlassung'}
 
 prop_sets['GRUNDBESITZ'] = {'Grundbesitz', 'Grunabesitz', 'Gründbesitz', 'Ges. Grundbesitz', 'Grundbesitz:'}
@@ -434,9 +454,11 @@ prop_sets['ANLAGEN'] = {'Anlagen', 'Besondere Anlagen', 'Betriebsanlagen',
                         'Anlagen (in Teltow b. Berlin)', 'Anlage',
                         'Anlagen jedweder Art'}
 
+prop_sets['ANGESTELLTE'] = {'Angestellte'}
+
 prop_sets['ANGABEN'] = {'Weitere Angaben', 'Besondere Angaben'}
 
-prop_sets['WERK_DÜSSELDORF'] = {'Werk Düsseldorf', 'für Werk Düsseldorf'}
+prop_sets['WERK DÜSSELDORF'] = {'Werk Düsseldorf', 'für Werk Düsseldorf'}
 
 prop_sets['KOMMANDITISTEN'] = {'Kommanditisten', 'Kommanditist'}
 
@@ -444,7 +466,7 @@ prop_sets['NUTZFLÄCHE'] = {'Nutzfläche', 'qm Nutzfläche; gesamte Nutzfläche'
                            'Fläche; gesamte Nutzfläche',
                            'gesamte Nutzfläche', 'qm bebaut; gesamte Nutzfläche'}
 
-prop_sets['FIRMA_GEHÖRT'] = {'Firma gehört folgendem Konzern an',
+prop_sets['FIRMA GEHÖRT'] = {'Firma gehört folgendem Konzern an',
                              'Firma gehört folgender Interessengemeinschaft an:',
                              'Firma gehört folgendem Konzern', 'Firma gehört folgenden Konzernen an',
                              'Firma gehört an'}
@@ -454,7 +476,7 @@ prop_sets['KAPITAL'] = {'Stamm-Kapital', 'Kaßital', 'Kapital', 'Stammkapital',
 
 prop_sets['ZWEIGBÜROS'] = {'Eigene Zweigbüros', 'Zweigbüros', 'Zweig-Büro'}
 
-prop_sets['FERNRUF'] = {'Ferner', 'Fernraf', 'Fernruf'}
+prop_sets['FERNRUF'] = {'Fernraf', 'Fernruf'}
 
 prop_sets['GEFOLGSCHAFT'] = {'Gefolgschaft', 'Gefolgschaft:'}
 
@@ -468,7 +490,7 @@ prop_sets['UMSATZ'] = {'Umsatz', 'Umsatz:', 'Umsatz (Mill. RM)',
 
 prop_sets['ANTEILSEIGNER'] = {'Anteileigner', 'Anteileigener', 'Hauptanteileigner',
                               'Anteileignerin', 'Anteileigher', 'Anteifeigner',
-                              'Großanteileigner'}
+                              'Großanteileigner', 'Vorsitzer'}
 
 prop_sets['AUFSICHTSRAT'] = {'Aufsichtsrat', 'Aufsichtrat', 'Oufsichtsrat'}
 
@@ -476,23 +498,46 @@ prop_sets['KOMPLEMENTÄRE'] = {'Komplementär', 'Komplementäre'}
 
 prop_sets['VERTRÄGE'] = {'Verträge', 'Vertrag'}
 
+prop_sets['BESITZ'] = {'Besitz'}
+
+prop_sets['SITZ'] = {'Sitz'}
+
+matched_props = defaultdict(list)
+
 # Merge values within the groups of properties. Remove then the columns with properties merged already
 for key, value in prop_sets.items():
     table[key] = ''
     for v in value:
-        table[key] = table[key] + table[v]
+        if v in table:
+            table[key] = table[key] + table[v]
+            matched_props[key].append(v)
     for v in value:
-        table.drop(v, axis=1, inplace=True)
+        if v in table:
+            table.drop(v, axis=1, inplace=True)
+
+# Match with fuzziness
+for main_prop, proppatterns in prop_sets.items():
+    subprops = []
+    for proppattern in proppatterns:
+        fuzziness = 1 if len(proppattern) > 5 else 0
+        pattern = f'({proppattern.upper().replace("(","").replace(")","")})' + '{s<='+str(fuzziness)+':[A-Z]}'
+        for col_name in set(table.keys()).difference(set(prop_sets.keys())):
+            res = regex.search(pattern, col_name.upper())
+            if res: subprops.append(col_name)
+    if subprops:
+        print(f"{main_prop}: {subprops}")
+        if main_prop not in table:
+            table[main_prop] = ''
+        for subprop in set(subprops):
+            table[main_prop] = table[main_prop] + table[subprop]
+            matched_props[main_prop].append(subprop)
+            table.drop(subprop, axis=1, inplace=True)
 
 
 # Extract Drahtanschrift from Fernruf
 def drahtanschrift(x):
-    if ('Drahtanschrift: ' in x):
-        return x.split('Drahtanschrift: ')[1]
-    if ('Drahtänschrift:' in x):
-        return x.split('Drahtänschrift: ')[1]
-    else:
-        return ''
+    for anschrift in ['Drahtanschrift: ', 'Drahtänschrift: ']:
+        return x.split(anschrift)[1] if anschrift in x else x
 
 
 table['FERNRUF'] = table['FERNRUF'].replace('Drahtanschrift;', 'Drahtanschrift:', regex=True)
@@ -504,12 +549,8 @@ table['DRAHTANSCHRIFT'] = table['DRAHTANSCHRIFT'].astype(bool) * (table['DRAHTAN
 
 # Remove Drahtanschrift from Fernruf
 def remove_drahtanschrift(x):
-    if 'Drahtanschrift: ' in x:
-        return x.split('Drahtanschrift: ')[0]
-    if ('Drahtänschrift:' in x):
-        return x.split('Drahtänschrift: ')[0]
-    else:
-        return x
+    for anschrift in ['Drahtanschrift: ', 'Drahtänschrift: ']:
+        return x.split(anschrift)[0] if anschrift in x else x
 
 
 table['FERNRUF'] = table['FERNRUF'].apply(lambda x: remove_drahtanschrift(x))
@@ -524,13 +565,21 @@ table.rename(columns={"Gründung": "GRÜNDUNG",
 
 # Remove all properties with two or less values
 props = table.describe().T.reset_index()
-props = props[props['unique'] > 4]
-for prop in props[props['unique'] <= 4]['index']:
+#props = props[props['unique'] > 4]
+table['DIVERSES'] = ''
+matched_props['DIVERSES'] = []
+for prop in set(props[props['unique'] <= 4]['index']).difference(set(prop_sets.keys())):
     try:
+        table.loc[table[prop].str.len() > 0, 'DIVERSES'].add(f'\n {prop} : ')
+        table['DIVERSES'] = table['DIVERSES'] + table[prop]
+        matched_props['DIVERSES'].append(prop)
         table.drop(prop, axis=1, inplace=True)
     except Exception:
-        pass
+        continue
+else:
+    table['DIVERSES'] = table['DIVERSES'].str.strip()
 
+props = table.describe().T.reset_index()
 props = props.sort_values(by=['unique'], ascending=False)
 cols = props['index'].tolist()
 tablet = table[cols]
@@ -539,21 +588,18 @@ tablet = table[cols]
 # unused_forms = [ 'Gesellschaft', 'Maschinenbauanstalt' ]
 # rechtsform['BG'] = ['Baugesellschaft']
 # rechtsform['Fabrik'] = ['Fabr.', 'fabrik', 'Fabrik', 'fabr.', 'fbk.']
-rechtsform = {}
-rechtsform['GmbH'] = ['m. b. H.', 'G. m. b. H.', 'Gesellschaft m. b. H.',
-                      'G.m.b. H.', 'Ges. m.b. H.', 'GmbH', 'G. m. b.H.',
-                      'mit beschr. Haftung', 'Ges.m.b.H.', 'G.m.b.H.',
-                      'GmbH.', 'GmbH']
-rechtsform['AG'] = ['A.-G.', 'Aktien-Gesellschaft', 'Actien-Gesellschaft',
-                    'Aktiengesellschaft', 'Akt.-Ges.', 'Aktien-Gesellsch.',
-                    'A. G.']
-rechtsform['KG'] = ['K.-G.', 'Kom.-Ges.', 'Komm.-Ges.', 'KG.',
-                    'Kommanditgesellschaft', 'Kom. Ges.', 'Komm.-Ges.', ]
-
-rechtsform['oHG'] = ['o. H. G.', 'o. H.-G.']
-rechtsform['VDI'] = ['VDI']
-rechtsform['Aktien-Maschinenfabrik'] = ['Aktien-Maschinenfabrik']
-rechtsform['Elektricitäts-Gesellschaft'] = ['Elektricitäts-Gesellschaft']
+rechtsform = {'GmbH': ['m. b. H.', 'G. m. b. H.', 'Gesellschaft m. b. H.',
+                       'G.m.b. H.', 'Ges. m.b. H.', 'GmbH', 'G. m. b.H.',
+                       'mit beschr. Haftung', 'Ges.m.b.H.', 'G.m.b.H.',
+                       'GmbH.', 'GmbH'],
+              'AG': ['A.-G.', 'Aktien-Gesellschaft', 'Actien-Gesellschaft',
+                     'Aktiengesellschaft', 'Akt.-Ges.', 'Aktien-Gesellsch.', 'A. G.'],
+              'KG': ['K.-G.', 'Kom.-Ges.', 'Komm.-Ges.', 'KG.', 'Kommanditgesellschaft',
+                     'Kom. Ges.', 'Komm.-Ges.'],
+              'oHG': ['o. H. G.', 'o. H.-G.'],
+              'VDI': ['VDI'],
+              'Aktien-Maschinenfabrik': ['Aktien-Maschinenfabrik'],
+              'Elektricitäts-Gesellschaft': ['Elektricitäts-Gesellschaft']}
 
 
 def legal_form(x):
@@ -561,7 +607,7 @@ def legal_form(x):
     for k, v in rechtsform.items():
         if any(a.lower() in x.lower() for a in v):
             lforms.append(k)
-    return ('; '.join(lforms))
+    return '; '.join(lforms)
 
 
 # 1717 entities with legal forms, 3433 without legal forms
@@ -574,6 +620,9 @@ for col in cols:
     tablet[col] = tablet[col].apply(lambda s: s.rstrip('.').rstrip('. ') if type(s) == str else s)
 
 # SAVE RESULTS
+with open("Matched_properties.json", "w") as fout:
+    json.dump(matched_props, fout, indent=4)
+
 tablet.to_excel("MI1937_processed.xlsx", sheet_name='Maschinenindustrie_1937_v1')
 tablet.to_csv("MI1937_processed.csv", sep=',', quoting=csv.QUOTE_ALL)
 tablet.describe()
