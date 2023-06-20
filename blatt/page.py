@@ -95,10 +95,11 @@ class Page:
         for i, line in enumerate(lines[:-1]):
             if line:  # only for non-empty strings
                 if line[-1] in hyphens:
-                    if lines[i + 1][0].isupper():
-                        text += lines[i + 1]
-                    else:
-                        text = text[:-1] + lines[i + 1]
+                    if lines[i + 1]:
+                        if lines[i + 1][0].isupper():
+                            text += lines[i + 1]
+                        else:
+                            text = text[:-1] + lines[i + 1]
                 else:
                     text += ' ' + lines[i + 1]
         return text
