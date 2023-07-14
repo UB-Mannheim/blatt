@@ -5,17 +5,19 @@ from pathlib import Path
 import difflib
 import numpy as np
 import csv
+import matplotlib.pyplot as plt
 
 # these values are needed for merging and splitting segments
-MAXDY0 = 59  # Maximal difference in Y0 between the lines for merging segments #
-MINDY0 = 80   Minimal difference in Y0 between the lines for splitting segments # 40 for 1940; 45 for 1941-1942
 
-# paths = ['./wer_leitet/page-xml-40/516401084_19400001_aanm3ed.pdf_page_' + str(n) + '.xml' for n in range(19,1043)]
-paths = ['./wer_leitet/page-xml-41-42/516401084_' + str(n).zfill(4) + '.xml' for n in range(21,1183)]
+MAXDY0 = 30  # Maximal difference in Y0 between the lines for merging segments
+MINDY0 = 50  # Minimal difference in Y0 between the lines for splitting segments
+
+# paths = ['../../../page-xml-40/516401084_19400001_aanm3ed.pdf_page_' + str(n) + '.xml' for n in range(19,1043)]
+paths = ['../../../page-xml-41-42/516401084_' + str(n).zfill(4) + '.xml' for n in range(21, 1183)]
 
 paths = [p for p in paths if Path(p).is_file()]
-paths = [p for p in paths if Path(p).stat().st_size >=50000]
-paths = [p for p in paths if not p.endswith('146.xml')]
+paths = [p for p in paths if Path(p).stat().st_size >= 50000]
+# paths = [p for p in paths if not p.endswith('146.xml')]
 
 class PageTwoColumns(Page):
     def __init__(self, *args):
@@ -66,8 +68,8 @@ class PageTwoColumns(Page):
         df.replace(':-', ': ', inplace=True, regex=True)
 
         # Replace exceptions
-        words = ['Simplex Vervielfältiger jetzt:', 'Kratzenfabrik „Ankermarke:e',
-                 'Kratzenfabrik „Ankermarke: ']
+        words = ['Simplex Vervielfältiger jetzt:', 'Kratzenfabrik ?Ankermarke:e',
+                 'Kratzenfabrik ?Ankermarke: ']
         for word in words:
             df.replace(word, word.replace(':', ''), inplace=True, regex=True)
 
@@ -76,9 +78,9 @@ class PageTwoColumns(Page):
                        (df['Column'].shift(1) == 'left')].index[0]
 
         # Drop headers at a page
-        if ' — ' in df['Line'].loc[right_col]:
+        if ' ? ' in df['Line'].loc[right_col]:
             df.drop(index=(right_col), inplace=True)
-        if ' — ' in df['Line'].loc[0]:
+        if ' ? ' in df['Line'].loc[0]:
             df.drop(index=(0), inplace=True)
         if 0 in df.index:
             df = df.reset_index()
@@ -102,8 +104,7 @@ class PageTwoColumns(Page):
 
         # Merge the bottom-left with upper-right TextRegions
         if (all(df['dY0'][right_col:right_col + 2] <= MAXDY0) or all(
-                df['Line'][right_col:right_col + 1].str.contains(':'))) and (
-                df['Line'][right_col] not in ['Richard Weber & Co.,']):
+                df['Line'][right_col:right_col + 1].str.contains(':'))):
             df['SegmentID'].replace(df['SegmentID'][right_col + 1],
                                     df['SegmentID'][right_col - 1],
                                     inplace=True)
@@ -159,7 +160,7 @@ class Entities:
                         segments[list(segments.keys())[list(segments.keys()).index(k) - 1]].extend(v)
                         idx.append(k)
                 except Exception as e:
-                    print(k,v,e)
+                    print(k, v, e)
         for i in idx:
             del segments[i]
         self.segments = segments
@@ -176,7 +177,7 @@ class Entities:
         https://ocr-d.de/en/gt-guidelines/trans/trSilbentrennung.html
         RETURNS list of strings, where the strings, ended with hyphens, were merged
         """
-        hyphens = ['-', '-', '⹀', '⸗', '']
+        hyphens = ['-', '-', '?', '?', '']
         new = [txt[0]]
         for i, line in enumerate(txt[:-1]):
             if line:
@@ -248,3 +249,50 @@ pages = Entities(paths)
 
 # Postprocessing
 entities = pages.entities
+
+for key, value in entities.items():
+    value['RAW_TEXT'] = pages.segments_text[value['FILE_SEGMENT']]
+    value['RAW_TEXT_1LINE'] = pages.segments_text_unhyphenated[value['FILE_SEGMENT']]
+table = pd.DataFrame(entities).T.reset_index().fillna('')
+table = table.rename(columns={'index': 'CEO'})  # RAW STRUCTURED DATA
+
+## Quality checks
+
+# Print entities with repeating properties
+repeated_ents = []
+for k, v in pages.entities.items():
+    if v['LENGTH'][0] != v['LENGTH'][1]:
+        repeated_ents.append([v['LENGTH'], k, '   ', v['FILE_SEGMENT'], v])
+
+# Sorting and grouping the properties
+properties = sorted(table.columns.to_list())
+props = table.describe().T.reset_index()
+prop_groups = {}
+for prop in properties:
+    prop_groups[prop] = frozenset(difflib.get_close_matches(prop, properties, n=30, cutoff=0.65))
+unique_prop_groups = []
+for prop in set(prop_groups.values()):
+    unique_prop_groups.append(set(prop))
+
+# Remove all properties with two or less values
+props = table.describe().T.reset_index()
+props = props[props['unique'] > 8]
+for prop in props[props['unique'] <= 8]['index']:
+    try:
+        table.drop(prop, axis=1, inplace=True)
+    except Exception:
+        pass
+
+props = props.sort_values(by=['unique'], ascending=False)
+cols = props['index'].tolist()
+tablet = table[cols]  # REDUCED STRUCTURED DATA
+
+print('Repeated properties in ' + str(len(repeated_ents)) + ' entities and MAXDY0=' + str(MAXDY0))
+
+# Plot DY0 distribution
+x = []
+for v, d in pages.d.items():
+    x.extend(d.dY0)
+counts, bins, bars = plt.hist(x, bins=1000, histtype='step')
+plt.xlim(20, 80)
+plt.show()
