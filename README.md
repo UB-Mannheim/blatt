@@ -8,6 +8,7 @@ NLP-helper for OCR-ed pages in [PAGE XML](https://github.com/PRImA-Research-Lab/
 * [Installation](#installation)
 * [How to use](#how-to-use)
 * [Command Line Interface](#command-line-interface)
+* [Archived code](#archived-code)
 
 ## Installation
 
@@ -122,3 +123,7 @@ Options:
                           library.  [default: False]
   -h, --help              Show this message and exit.
 ```
+## Archived code
+
+Shigapov, Renat. (2022). blatt: NLP-helper for OCR-ed pages in PAGE XML format. Zenodo. https://doi.org/10.5281/zenodo.8398461
+
