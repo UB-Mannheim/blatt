@@ -12,11 +12,10 @@ class Page:
     Removes hyphens from the text lines. Computes the coordinates of the mid-range average of baseline points.
     Saves plain text with or without line breaks to TXT file. Splits plain text into sentences and saves it as TSV.
     """
-
-    def __init__(self, filename: Path = ''):
+    def __init__(self, filename: str | Path = ''):
         if filename:
+            self.filename: Path = self._validate_filename(filename)
             self.tree, self.root, self.namespace = self._open_page_xml(filename)
-            self.filename: Path = filename
             self.text_regions: List
             self.text_regions_xml = [e for e in self.root.iter("{%s}TextRegion" % self.namespace)]
             self.text_lines: List
@@ -30,7 +29,10 @@ class Page:
             self.y_baselines: List
             self.center_baseline: List
             self._compute_baselines()
-            self.attribute_length = [(k, len(v)) for k, v in self.__dict__.items() if k != 'tree']
+            self.attribute_length = [
+                (k, len(v)) for k, v in self.__dict__.items()
+                if k != 'tree' and hasattr(v, '__len__')
+            ]
         else:
             raise ValueError('Empty filename. Specify the proper filename of a PAGE XML file.')
 
@@ -39,6 +41,24 @@ class Page:
 
     def __str__(self):
         return pformat(self.attribute_length)
+    
+    @staticmethod
+    def _validate_filename(filename: str | Path) -> Path:
+        """
+        Validates the provided filename.
+        """
+        if isinstance(filename, str):
+            filename = Path(filename)
+        elif not isinstance(filename, Path):
+            raise TypeError('Filename must be a string or Path instance.')
+
+        if not filename.exists():
+            raise FileNotFoundError(f'Filepath "{filename}" does not exist.')
+
+        if not filename.is_file():
+            raise ValueError(f'Path "{filename}" is not a file.')
+
+        return filename
 
     @staticmethod
     def _open_page_xml(filename: Path = '') -> Tuple[ET.Element, ET._ElementTree, str]:
